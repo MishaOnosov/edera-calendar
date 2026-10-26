@@ -3,7 +3,12 @@ import type { GCalEvent } from '../types';
 const API = 'https://www.googleapis.com/calendar/v3';
 
 export class GoogleApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+    /** Google's machine-readable reason (e.g. `accessNotConfigured`); never free-form text. */
+    public readonly reason?: string,
+  ) {
     super(message);
     this.name = 'GoogleApiError';
   }
@@ -37,6 +42,16 @@ function toEvent(r: GoogleEventResource): GCalEvent | undefined {
   return e;
 }
 
+async function errorReason(res: Response): Promise<string | undefined> {
+  try {
+    const body = (await res.json()) as { error?: { errors?: { reason?: unknown }[] } };
+    const reason = body.error?.errors?.[0]?.reason;
+    return typeof reason === 'string' && /^[A-Za-z]{1,40}$/.test(reason) ? reason : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export class GoogleCalendarClient {
   constructor(
     private readonly getToken: TokenProvider,
@@ -53,7 +68,7 @@ export class GoogleCalendarClient {
     let res = await send(await this.getToken());
     if (res.status === 401) res = await send(await this.getToken(true));
     if (!res.ok && !okStatuses.includes(res.status)) {
-      throw new GoogleApiError(res.status, `Google Calendar request failed (${res.status})`);
+      throw new GoogleApiError(res.status, `Google Calendar request failed (${res.status})`, await errorReason(res));
     }
     return res;
   }
