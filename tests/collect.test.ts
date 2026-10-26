@@ -64,15 +64,37 @@ describe('collectLessons', () => {
     expect(posts).toHaveLength(2);
   });
 
-  it('skips the detail request for cached lessons with unchanged times', async () => {
+  it('skips the detail request for a cached lesson that is far off and unchanged', async () => {
     const fetchImpl = makeFetch();
     const cache = new Map<string, CachedDetail>([
-      ['1', { detail: { student: 'Cached Kid' }, start: '2026-11-07T12:00:00', end: '2026-11-07T13:00:00' }],
+      ['2', { detail: { student: 'Cached Kid' }, start: '2026-11-14T12:00:00', end: '2026-11-14T13:00:00' }],
     ]);
     const r = await collectLessons({ fetchImpl, doc: docFrom(calendarPage), cache, now });
     const posts = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[1]?.method === 'POST');
     expect(posts).toHaveLength(1);
-    expect(r.status === 'ok' && r.lessons[0]?.title).toBe('Math — Cached Kid');
+    expect(r.status === 'ok' && r.lessons[1]?.title).toBe('Math — Cached Kid');
+  });
+
+  it('keeps asking until the meeting link appears for a lesson starting within a week', async () => {
+    const fetchImpl = makeFetch();
+    const cache = new Map<string, CachedDetail>([
+      ['1', { detail: { student: 'Old Name' }, start: '2026-11-07T12:00:00', end: '2026-11-07T13:00:00' }],
+    ]);
+    const r = await collectLessons({ fetchImpl, doc: docFrom(calendarPage), cache, now });
+    const posts = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[1]?.method === 'POST');
+    expect(posts).toHaveLength(2);
+    expect(r.status === 'ok' && r.lessons[0]?.title).toBe('Math — Test Student');
+  });
+
+  it('trusts a cached lesson that already has its meeting link', async () => {
+    const fetchImpl = makeFetch();
+    const cache = new Map<string, CachedDetail>([
+      ['1', { detail: { student: 'Kid', meetingUrl: 'https://zoom.us/j/1' }, start: '2026-11-07T12:00:00', end: '2026-11-07T13:00:00' }],
+    ]);
+    const r = await collectLessons({ fetchImpl, doc: docFrom(calendarPage), cache, now });
+    const posts = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[1]?.method === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(r.status === 'ok' && r.lessons[0]?.location).toBe('https://zoom.us/j/1');
   });
 
   it('still syncs a lesson whose detail request fails, with the subject only', async () => {
