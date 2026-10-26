@@ -29,13 +29,14 @@ export async function handleMessage(msg: Msg, deps: BackgroundDeps): Promise<voi
 
 // --- Chrome wiring (thin; exercised manually) ---
 
-let lastToken: string | undefined;
-
 async function getToken(refresh?: boolean): Promise<string> {
-  if (refresh && lastToken) await chrome.identity.removeCachedAuthToken({ token: lastToken });
-  const { token } = await chrome.identity.getAuthToken({ interactive: true });
+  let { token } = await chrome.identity.getAuthToken({ interactive: true });
+  if (token && refresh) {
+    // The cached token was rejected: drop it (survives service-worker restarts) and fetch a new one.
+    await chrome.identity.removeCachedAuthToken({ token });
+    ({ token } = await chrome.identity.getAuthToken({ interactive: true }));
+  }
   if (!token) throw new Error('No Google token');
-  lastToken = token;
   return token;
 }
 

@@ -1,5 +1,5 @@
 import { DETAIL_CACHE_KEY, SYNC_STATE_KEY, type Msg, type SyncState, type TabMsg } from './messages';
-import { collectLessons, type CachedDetail } from './reader/collect';
+import { collectLessons, shouldCollect, type CachedDetail } from './reader/collect';
 
 async function loadCache(): Promise<Map<string, CachedDetail>> {
   const stored = (await chrome.storage.local.get(DETAIL_CACHE_KEY))[DETAIL_CACHE_KEY] as Record<string, CachedDetail> | undefined;
@@ -15,6 +15,7 @@ async function collectAndSend(): Promise<void> {
 }
 
 function run(): void {
+  if (!shouldCollect(document)) return;
   collectAndSend().catch(() => {
     // The page changed shape or the network failed: report generically; never include page data.
     const state: SyncState = { status: 'error', at: new Date().toISOString(), error: 'Could not read the portal page.' };

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { collectLessons, type CachedDetail } from '../src/reader/collect';
+import { collectLessons, shouldCollect, type CachedDetail } from '../src/reader/collect';
 import { ParseError } from '../src/reader/parseList';
 
 const detailJson = readFileSync('tests/fixtures/detail-sample.json', 'utf8');
@@ -84,5 +84,16 @@ describe('collectLessons', () => {
     await expect(collectLessons({ fetchImpl: makeFetch(), doc: docFrom('<p>hi</p>'), cache: new Map(), now })).rejects.toThrow(
       ParseError,
     );
+  });
+});
+
+describe('shouldCollect', () => {
+  it('is true on the calendar page and on the login page', () => {
+    expect(shouldCollect(docFrom('<div id="dp"></div>'))).toBe(true);
+    expect(shouldCollect(docFrom('<form class="login__form"></form>'))).toBe(true);
+  });
+
+  it('is false on other portal pages so a good sync state is not overwritten', () => {
+    expect(shouldCollect(docFrom('<h1>FAQ</h1>'))).toBe(false);
   });
 });
