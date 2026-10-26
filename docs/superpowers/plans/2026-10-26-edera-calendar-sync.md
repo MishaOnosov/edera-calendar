@@ -4,7 +4,16 @@
 
 **Goal:** A Chrome MV3 extension that reads the schedule from lk.ederaschool.com and syncs it to a dedicated "Edera" Google calendar.
 
-**Architecture:** A content script on the portal extracts lessons into a normalized `Lesson[]` and messages the service worker. The worker maps lessons to Google events with deterministic IDs, diffs them against the "Edera" calendar, and applies create/update/delete. All logic lives in pure, unit-tested modules; Chrome APIs are touched only in thin entry files.
+**Architecture:** A content script on the portal (a server-rendered 1C-Bitrix site whose calendar is a DayPilot widget) calls the portal's own same-origin JSON endpoints with the user's session cookie: a list endpoint for all lessons, and a per-lesson detail endpoint for student name and meeting info. It normalizes them into `Lesson[]` and messages the service worker. The worker maps lessons to Google events with deterministic IDs, diffs them against the "Edera" calendar, and applies create/update/delete. All logic lives in pure, unit-tested modules; Chrome APIs are touched only in thin entry files.
+
+**Portal facts (verified by logging in, 2026-10-26):**
+- Account is a **Teacher** (teacher id in hidden `input[name=teacher]`; student ids in `.dropdown__list-item[data-value]` of the first dropdown).
+- List endpoint: `GET /?load=Y&seart=Y&st=<comma-separated student ids>&t=<teacher id>` returns a JSON array of **all** lessons (Mar–Dec 2026, ignores date range): `{ id: string, start: "YYYY-MM-DDTHH:mm:ss", end, barColor, backColor, html }`. `html` begins with the subject text (e.g. `Computer Science`) followed by `<br>` and a `[HH:mm - HH:mm]` div. No student name in the list.
+- Detail endpoint: `POST /` with form body `full=Y&id=<id>&tiher=Y&block=Y` returns `{ str: "<html>" }` containing the subject (`.pop_title`), date, the student's name, the lesson time "(Moscow Time Zone)" and the student's local time "(Tbilisi Time Zone)".
+- **List times are Moscow time** (`Europe/Moscow`), confirmed against the detail view. Detail labels timezones by name, not IANA.
+- Lesson durations seen: 45, 60, 90, 120 minutes.
+- Login form: `form.login__form` with `login` and `pwd` fields; its presence on the page means logged out.
+- Unknown yet: what `backColor`/`barColor` mean (status such as cancelled/free slot/rescheduled), and whether free slots appear in the list. Task 4 resolves this with the user before mapping.
 
 **Tech Stack:** TypeScript, esbuild (bundling), Vitest (+ v8 LCOV coverage), ESLint, GitHub Actions, SonarCloud.
 
@@ -24,7 +33,11 @@
 
 - Schedule with zero lessons (portal glitch or genuinely empty week): no deletions happen.
 - Lesson with missing end time: event gets a default 1-hour duration, no crash.
-- Timezone: use the timezone from the page/JSON if present, else the browser's; every event carries an explicit `timeZone` (tested in Task 2 mapping).
+- Timezone: list times are `Europe/Moscow` regardless of the browser's zone; every event carries an explicit `timeZone` (tested in Tasks 2 and 4). A user whose Chrome is in Lausanne must still get the right wall-clock time on the iPhone.
+- 280 lessons in the list: detail requests only for lessons inside the sync window, cached by id in `chrome.storage.local`, so a sync does not fire hundreds of POSTs (Task 4).
+- Detail request fails for one lesson (HTTP error or unparseable): that lesson still syncs with the subject only; the sync as a whole does not abort.
+- Student names are children's names: they go only into the user's own Google calendar, never into logs, `syncState` or error messages.
+- Unknown timezone label in the detail HTML: fall back to the list timezone, don't throw.
 - Same lesson seen twice in one parse (duplicate rows): deduped by id, one event.
 - Lesson rescheduled (same id, new time): updated in place, not duplicated.
 
@@ -52,7 +65,7 @@
 
 **Interfaces:**
 - Produces (`src/types.ts`):
-  - `interface Lesson { id: string; title: string; start: string; end?: string; timeZone: string; location?: string; description?: string }` (`start`/`end` are ISO 8601 local date-times without offset)
+  - `interface Lesson { id: string; title: string; start: string; end?: string; timeZone: string; location?: string; description?: string }` (`start`/`end` are ISO 8601 local date-times without offset; `location` carries the meeting URL when present)
   - `interface GCalEvent { id: string; summary: string; start: { dateTime: string; timeZone: string }; end: { dateTime: string; timeZone: string }; location?: string; description?: string }`
 - Produces (`src/sync/mapping.ts`):
   - `eventId(lessonId: string): string` — lowercase base32hex (`a-v0-9`), length 5–1024, deterministic (hash of lessonId, e.g. SHA-256 truncated; sync version using a small pure implementation).
@@ -77,20 +90,26 @@
 - [ ] **Step 2–4: Run fail, implement, run pass** (`npx vitest run tests/diff.test.ts`).
 - [ ] **Step 5: Commit** `feat: event diffing`.
 
-### Task 4: Portal parser  *(blocked on user-supplied page/JSON sample)*
+### Task 4: Portal parsers (list feed + lesson detail)
 
 **Files:**
-- Create: `tests/fixtures/schedule-sample.*` (user-provided, scrubbed), `src/reader/parse.ts`, `tests/parse.test.ts`
+- Create: `tests/fixtures/list-sample.json`, `tests/fixtures/detail-sample.json` (hand-written with fake names and ids, same shape as the real responses described in "Portal facts"; no real data committed), `src/reader/parseList.ts`, `src/reader/parseDetail.ts`, `tests/parseList.test.ts`, `tests/parseDetail.test.ts`
 
 **Interfaces:**
 - Consumes: `Lesson` (Task 2).
-- Produces: `parseSchedule(source: string): Lesson[]` — `source` is the raw JSON text or page HTML (decided from the fixture). Dedupes by lesson id. Throws `ParseError` (exported class) when the structure is unrecognizable; returns `[]` only for a recognizably empty schedule.
+- Produces:
+  - `const PORTAL_TIME_ZONE = 'Europe/Moscow'`
+  - `interface RawLesson { id: string; start: string; end: string; subject: string; backColor: string; barColor: string }`
+  - `parseList(json: string): RawLesson[]` — `subject` is the `html` text before the first `<br>`, tags stripped and trimmed; dedupes by `id`; throws `ParseError` (exported class) if the JSON is not an array of objects with `id`/`start`/`end`; `[]` only for a literal empty array.
+  - `interface LessonDetail { student?: string; meetingUrl?: string; studentTimeZoneLabel?: string }`
+  - `parseDetail(json: string): LessonDetail` — reads `{ str }`, extracts the student name from the `ctudentns` block and a meeting URL from `a.btn_video_link` href if present; never throws on missing fields (returns `{}`), throws `ParseError` only on non-JSON input.
+  - `toLesson(raw: RawLesson, detail?: LessonDetail): Lesson` — `title` is `"<subject> — <student>"` or just `subject` without detail; `timeZone` is `PORTAL_TIME_ZONE`.
 
-- [ ] **Step 1: Get the fixture from the user and commit it** after confirming no personal data remains.
-- [ ] **Step 2: Write failing tests** asserting exact `Lesson` values for known fixture entries (id, title, start, end, timeZone), that duplicated rows yield one lesson, and that garbage input throws `ParseError`.
-- [ ] **Step 3: Run** — Expected: FAIL.
-- [ ] **Step 4: Implement `parseSchedule`.** Prefer reading the JSON the page loads; fall back to DOM parsing (via `DOMParser`; use `jsdom` in Vitest env if needed).
-- [ ] **Step 5: Run** — Expected: PASS. **Step 6: Commit** `feat: parse portal schedule`.
+- [ ] **Step 1: Ask the user what the calendar colors mean** (open the portal, compare a cancelled/rescheduled/free-slot lesson against a normal one). Record the answer in the spec and add a `status` field to `RawLesson` and a filter in `parseList` if some colors must be skipped (e.g. free slots, cancelled).
+- [ ] **Step 2: Write failing tests:** `parseList` returns exact `RawLesson` values for the fixture; subject extracted as `Computer Science`; duplicate ids collapse; `parseList('{}')` and `parseList('nope')` throw `ParseError`; `parseList('[]')` returns `[]`. `parseDetail` returns the fake student name; a detail with no student block returns `{}`; `toLesson` sets `timeZone: 'Europe/Moscow'` and the combined title.
+- [ ] **Step 3: Run** `npx vitest run tests/parseList.test.ts tests/parseDetail.test.ts` — Expected: FAIL.
+- [ ] **Step 4: Implement** the three functions. Use `DOMParser`-free string handling for `html` subject extraction; for detail HTML use `DOMParser` (Vitest `jsdom` environment for that test file only).
+- [ ] **Step 5: Run** — Expected: PASS. **Step 6: Commit** `feat: parse portal list and detail responses`.
 
 ### Task 5: Google Calendar client
 
@@ -120,13 +139,14 @@
 ### Task 7: Content script, service worker, triggers
 
 **Files:**
-- Create: `src/content.ts`, `src/background.ts`, `src/messages.ts`, `tests/background.test.ts`
+- Create: `src/content.ts`, `src/reader/collect.ts`, `src/background.ts`, `src/messages.ts`, `tests/collect.test.ts`, `tests/background.test.ts`
 
 **Interfaces:**
 - Produces (`src/messages.ts`): `type Msg = { type: 'schedule'; source: string } | { type: 'syncNow' }`; `type SyncState = { status: 'ok' | 'error' | 'loggedOut' | 'idle'; at?: string; added?: number; updated?: number; removed?: number; error?: string }`, stored in `chrome.storage.local` under key `syncState`.
-- Behavior: `content.ts` sends the page/JSON source via `{type:'schedule'}` when the portal calendar loads, and sends `loggedOut` state if the login form is detected. `background.ts` handles `schedule` (parse → `runSync` → write `syncState`) and `syncNow` (ask the active portal tab to re-send); `ParseError` and `GoogleApiError` become `status: 'error'` with a message and write nothing. Token via `chrome.identity.getAuthToken`.
+- Behavior: the content script (same-origin, so the session cookie is sent) runs `collectLessons(fetchImpl, doc)` from `src/reader/collect.ts`: if `form.login__form` exists, report `loggedOut`; otherwise read the teacher id from `input[name=teacher]` and student ids from the first `.dropdown__list` items' `data-value` (skipping empty), `GET` the list endpoint, `parseList`, keep lessons whose start is inside the sync window (`now − 7d … now + 60d`), then `POST` the detail endpoint for each of those whose id is not cached (cache in `chrome.storage.local` key `detailCache`, invalidated when `start`/`end` change), with concurrency 4. It sends `{type:'schedule', lessons}` to the worker. `background.ts` handles `schedule` (→ `runSync` → write `syncState`) and `syncNow` (ask the active portal tab to re-collect); `ParseError` and `GoogleApiError` become `status: 'error'` with a generic message (no student names) and write nothing. Token via `chrome.identity.getAuthToken`.
+- Produces (`src/reader/collect.ts`): `collectLessons(deps: { fetchImpl: typeof fetch; doc: Document; cache: Map<string, LessonDetail & { start: string; end: string }>; now: Date }): Promise<{ status: 'ok'; lessons: Lesson[] } | { status: 'loggedOut' }>`. `Msg` becomes `{ type: 'schedule'; lessons: Lesson[] } | { type: 'syncNow' }`.
 
-- [ ] **Step 1: Write failing tests** for a `handleMessage(msg, deps)` function exported from `background.ts` with injected deps: success writes counts; `ParseError` writes error state and calls no client method.
+- [ ] **Step 1: Write failing tests:** (a) `collectLessons` with a fake `fetchImpl` and a jsdom document: logged-out page returns `loggedOut` and makes no fetch; lessons outside the window get no detail request; a cached id gets none; a failing detail request for one id still returns that lesson with subject-only title; list request URL contains the teacher and student ids read from the document. (b) `handleMessage(msg, deps)` exported from `background.ts` with injected deps: success writes counts; `ParseError` writes error state and calls no client method; an empty `lessons` array writes `ok` with zero removals.
 - [ ] **Step 2–4: Run fail, implement, run pass.** **Step 5: Commit** `feat: content script and service worker`.
 
 ### Task 8: Popup UI

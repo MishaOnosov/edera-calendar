@@ -8,9 +8,13 @@ A Chrome extension that reads the user's schedule from https://lk.ederaschool.co
 - Browser: Chrome, Manifest V3, loaded unpacked (also works in Edge/Brave/Arc).
 - Portal credentials are never stored or handled by the extension or the repo; it reuses the user's logged-in browser session. (The password was posted in chat once; the user should rotate it.)
 
-## Assumptions (to verify against a real page sample)
-- The schedule on the first page is either loaded from a JSON endpoint or rendered in the DOM. Prefer the JSON endpoint if it exists; otherwise parse the DOM.
-- The user must supply a saved sample of the page (Cmd+S "Webpage, Complete") or the schedule JSON response, with private data removed. Parser work is blocked on this.
+## Portal findings (verified 2026-10-26 by logging in)
+- Server-rendered 1C-Bitrix site; the calendar is a DayPilot widget filled from a same-origin JSON list endpoint (all lessons, Mar–Dec 2026) plus a per-lesson detail endpoint (student name, meeting info). The account is a Teacher with multiple students. No page sample is needed from the user; the reader calls these endpoints from the content script with the user's session.
+- Feed times are Moscow time (`Europe/Moscow`).
+- Open question: meaning of the calendar colors (cancelled / rescheduled / free slot). To resolve with the user before the parser maps statuses.
+- Details are in the implementation plan, "Portal facts".
+
+## Assumptions
 - The user must create a Google Cloud OAuth client (type: Chrome Extension, Calendar API enabled). Setup steps will be documented in the README.
 
 ## Architecture
