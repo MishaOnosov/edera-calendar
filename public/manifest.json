@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Edera Calendar Sync",
+  "version": "0.1.0",
+  "description": "Syncs your Edera School schedule to Google Calendar.",
+  "permissions": ["identity", "storage"],
+  "host_permissions": ["https://lk.ederaschool.com/*", "https://www.googleapis.com/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["https://lk.ederaschool.com/*"], "js": ["content.js"], "run_at": "document_idle" }
+  ],
+  "action": { "default_title": "Edera Calendar Sync", "default_popup": "popup.html" },
+  "oauth2": {
+    "client_id": "REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": ["https://www.googleapis.com/auth/calendar"]
+  }
+}
