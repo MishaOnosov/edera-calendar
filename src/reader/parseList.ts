@@ -27,6 +27,7 @@ function subjectFromHtml(html: string): string {
 }
 
 const isString = (v: unknown): v is string => typeof v === 'string';
+const stringOrEmpty = (v: unknown): string => (isString(v) ? v : '');
 
 export function parseList(json: string): RawLesson[] {
   let data: unknown;
@@ -50,9 +51,9 @@ export function parseList(json: string): RawLesson[] {
       id,
       start,
       end,
-      subject: subjectFromHtml(isString(item.html) ? item.html : ''),
-      backColor: isString(item.backColor) ? item.backColor : '',
-      barColor: isString(item.barColor) ? item.barColor : '',
+      subject: subjectFromHtml(stringOrEmpty(item.html)),
+      backColor: stringOrEmpty(item.backColor),
+      barColor: stringOrEmpty(item.barColor),
     });
   }
   return lessons;

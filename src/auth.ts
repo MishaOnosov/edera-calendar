@@ -62,16 +62,12 @@ export function createTokenProvider(deps: TokenProviderDeps): TokenProvider {
 
   async function signIn(): Promise<string> {
     const url = buildAuthUrl(deps.clientId, deps.api.getRedirectURL(), deps.scope);
-    let redirect: string | undefined;
-    try {
-      redirect = await deps.api.launchWebAuthFlow({ url, interactive: false });
-    } catch {
-      try {
-        redirect = await deps.api.launchWebAuthFlow({ url, interactive: true });
-      } catch {
+    const launch = (interactive: boolean) => deps.api.launchWebAuthFlow({ url, interactive });
+    const redirect = await launch(false) // silent first; only open a window when consent is needed
+      .catch(() => launch(true))
+      .catch(() => {
         throw new AuthError();
-      }
-    }
+      });
     if (!redirect) throw new AuthError();
     const { token, expiresInSec } = parseAuthRedirect(redirect);
     await deps.store.set({ token, expiresAt: deps.now() + expiresInSec * 1000 });

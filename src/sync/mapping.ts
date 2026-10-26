@@ -1,3 +1,4 @@
+import { localMs } from '../time';
 import type { GCalEvent, Lesson } from '../types';
 
 const BASE32HEX = '0123456789abcdefghijklmnopqrstuv';
@@ -27,8 +28,7 @@ export function eventId(lessonId: string): string {
 
 /** Adds ms to a local date-time string without applying any time zone or DST. */
 function addToLocal(dateTime: string, ms: number): string {
-  const asUtc = new Date(`${dateTime}Z`);
-  return new Date(asUtc.getTime() + ms).toISOString().slice(0, 19);
+  return new Date(localMs(dateTime) + ms).toISOString().slice(0, 19);
 }
 
 export function lessonToEvent(l: Lesson): GCalEvent {
