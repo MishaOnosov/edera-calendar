@@ -45,12 +45,13 @@ function linkMayBeMissing(cached: CachedDetail, now: Date): boolean {
 }
 
 async function fetchDetail(raw: RawLesson, deps: CollectDeps): Promise<LessonDetail | undefined> {
+  const { fetchImpl } = deps; // call detached: browsers throw "Illegal invocation" if fetch is a method of another object
   const cached = deps.cache.get(raw.id);
   if (cached && cached.start === raw.start && cached.end === raw.end && !linkMayBeMissing(cached, deps.now)) {
     return cached.detail;
   }
   try {
-    const res = await deps.fetchImpl('/', {
+    const res = await fetchImpl('/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ full: 'Y', id: raw.id, tiher: 'Y', block: 'Y' }).toString(),
@@ -86,9 +87,10 @@ async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>
 export async function collectLessons(deps: CollectDeps): Promise<CollectResult> {
   if (deps.doc.querySelector('form.login__form')) return { status: 'loggedOut' };
 
+  const { fetchImpl } = deps; // call detached (see fetchDetail)
   const { teacher, students } = pageIds(deps.doc);
   const params = new URLSearchParams({ load: 'Y', seart: 'Y', st: students.join(','), t: teacher });
-  const res = await deps.fetchImpl(`/?${params}`, { credentials: 'same-origin' });
+  const res = await fetchImpl(`/?${params}`, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`Schedule request failed (${res.status})`);
   const raws = parseList(await res.text());
 

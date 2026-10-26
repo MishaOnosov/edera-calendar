@@ -119,3 +119,14 @@ describe('shouldCollect', () => {
     expect(shouldCollect(docFrom('<h1>FAQ</h1>'))).toBe(false);
   });
 });
+
+describe('fetch invocation', () => {
+  it('calls fetchImpl detached, as browsers throw "Illegal invocation" for fetch called as a method', async () => {
+    const strictFetch = function (this: unknown, _url: string | URL | Request, init?: RequestInit) {
+      if (this !== undefined) throw new TypeError('Illegal invocation');
+      return Promise.resolve(new Response(init?.method === 'POST' ? detailJson : JSON.stringify(feed)));
+    } as unknown as typeof fetch;
+    const r = await collectLessons({ fetchImpl: strictFetch, doc: docFrom(calendarPage), cache: new Map(), now });
+    expect(r.status).toBe('ok');
+  });
+});
