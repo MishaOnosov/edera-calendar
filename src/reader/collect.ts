@@ -21,6 +21,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const PAST_DAYS = 7;
 const FUTURE_DAYS = 60;
 const CONCURRENCY = 4;
+/** The portal only shows the meeting link shortly before a lesson starts. */
+const LINK_APPEARS_WITHIN_DAYS = 7;
 
 /** The content script matches every portal page; only the calendar and login pages are relevant. */
 export function shouldCollect(doc: Document): boolean {
@@ -36,9 +38,17 @@ function pageIds(doc: Document): { teacher: string; students: string[] } {
   return { teacher, students };
 }
 
+/** A cached detail without a meeting link goes stale once the lesson is close enough for the link to appear. */
+function linkMayBeMissing(cached: CachedDetail, now: Date): boolean {
+  if (cached.detail.meetingUrl) return false;
+  return new Date(`${cached.start}Z`).getTime() <= now.getTime() + LINK_APPEARS_WITHIN_DAYS * DAY_MS;
+}
+
 async function fetchDetail(raw: RawLesson, deps: CollectDeps): Promise<LessonDetail | undefined> {
   const cached = deps.cache.get(raw.id);
-  if (cached && cached.start === raw.start && cached.end === raw.end) return cached.detail;
+  if (cached && cached.start === raw.start && cached.end === raw.end && !linkMayBeMissing(cached, deps.now)) {
+    return cached.detail;
+  }
   try {
     const res = await deps.fetchImpl('/', {
       method: 'POST',
