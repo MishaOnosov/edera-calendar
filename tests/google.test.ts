@@ -110,7 +110,7 @@ describe('errors', () => {
 
   it('throws GoogleApiError on other failures without leaking the response body', async () => {
     const { impl } = fakeFetch(() => ({ status: 500, json: { error: 'boom' } }));
-    const err = await new GoogleCalendarClient(getToken, impl).listEvents('cal', 'a', 'b').catch((e) => e);
+    const err = await new GoogleCalendarClient(getToken, impl, async () => undefined).listEvents('cal', 'a', 'b').catch((e) => e);
     expect(err).toBeInstanceOf(GoogleApiError);
     expect(err.status).toBe(500);
   });
@@ -149,7 +149,57 @@ describe('error reason', () => {
 
   it('has no reason when the body is not JSON', async () => {
     const { impl } = fakeFetch(() => ({ status: 502 }));
-    const err = await new GoogleCalendarClient(getToken, impl).listEvents('cal', 'a', 'b').catch((e) => e);
+    const err = await new GoogleCalendarClient(getToken, impl, async () => undefined).listEvents('cal', 'a', 'b').catch((e) => e);
     expect(err.reason).toBeUndefined();
+  });
+});
+
+describe('rate limits', () => {
+  const rateLimited = { status: 403, json: { error: { errors: [{ reason: 'rateLimitExceeded' }] } } };
+
+  it('retries rateLimitExceeded with exponential backoff, then succeeds', async () => {
+    let n = 0;
+    const { impl, calls } = fakeFetch(() => (n++ < 2 ? rateLimited : { json: { items: [] } }));
+    const sleeps: number[] = [];
+    const client = new GoogleCalendarClient(getToken, impl, async (ms) => void sleeps.push(ms));
+    await client.listEvents('cal', 'a', 'b');
+    expect(calls).toHaveLength(3);
+    expect(sleeps).toEqual([1000, 2000]);
+  });
+
+  it('also retries 429 and 5xx', async () => {
+    for (const status of [429, 503]) {
+      let n = 0;
+      const { impl } = fakeFetch(() => (n++ < 1 ? { status } : { json: { items: [] } }));
+      const sleeps: number[] = [];
+      await new GoogleCalendarClient(getToken, impl, async (ms) => void sleeps.push(ms)).listEvents('cal', 'a', 'b');
+      expect(sleeps).toEqual([1000]);
+    }
+  });
+
+  it('gives up after 5 attempts with the reason attached', async () => {
+    const { impl, calls } = fakeFetch(() => rateLimited);
+    const client = new GoogleCalendarClient(getToken, impl, async () => undefined);
+    const err = await client.listEvents('cal', 'a', 'b').catch((e) => e);
+    expect(err).toBeInstanceOf(GoogleApiError);
+    expect(err.reason).toBe('rateLimitExceeded');
+    expect(calls).toHaveLength(5);
+  });
+
+  it('does not retry permanent errors', async () => {
+    const { impl, calls } = fakeFetch(() => ({ status: 403, json: { error: { errors: [{ reason: 'accessNotConfigured' }] } } }));
+    const client = new GoogleCalendarClient(getToken, impl, async () => undefined);
+    await client.listEvents('cal', 'a', 'b').catch(() => undefined);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('pauses briefly before every write to stay under the limit', async () => {
+    const { impl } = fakeFetch(() => ({ json: {} }));
+    const sleeps: number[] = [];
+    const client = new GoogleCalendarClient(getToken, impl, async (ms) => void sleeps.push(ms));
+    await client.insert('cal', event);
+    await client.patch('cal', event);
+    await client.remove('cal', 'edera1');
+    expect(sleeps).toEqual([150, 150, 150]);
   });
 });

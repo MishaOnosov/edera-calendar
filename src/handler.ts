@@ -18,13 +18,19 @@ function describeError(e: unknown): string {
   return 'Sync failed; try again.';
 }
 
+let syncing = false;
+
 export async function handleMessage(msg: Msg, deps: BackgroundDeps): Promise<void> {
   if (msg.type === 'syncNow') return deps.requestResync();
   if (msg.type === 'loggedOut') return deps.saveState({ status: 'loggedOut', at: deps.now().toISOString() });
+  if (syncing) return; // every portal page load sends a schedule; never run two syncs at once
+  syncing = true;
   try {
     const result = await runSync(msg.lessons, deps.getClient(), deps.now());
     await deps.saveState({ status: 'ok', at: deps.now().toISOString(), ...result });
   } catch (e) {
     await deps.saveState({ status: 'error', at: deps.now().toISOString(), error: describeError(e) });
+  } finally {
+    syncing = false;
   }
 }
