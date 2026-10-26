@@ -52,6 +52,8 @@ function toEvent(r: GoogleEventResource): GCalEvent | undefined {
   return e;
 }
 
+const calendarPath = (calendarId: string) => `/calendars/${encodeURIComponent(calendarId)}`;
+
 async function errorReason(res: Response): Promise<string | undefined> {
   try {
     const body = (await res.json()) as { error?: { errors?: { reason?: unknown }[] } };
@@ -94,18 +96,26 @@ export class GoogleCalendarClient {
     return this.request(path, init, okStatuses);
   }
 
-  async ensureCalendar(name: string): Promise<string> {
+  /** Follows `nextPageToken` and returns every item of a list endpoint. */
+  private async listAll<T>(path: string, params: Record<string, string> = {}): Promise<T[]> {
+    const items: T[] = [];
     let pageToken: string | undefined;
     do {
-      const query = pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : '';
-      const page = (await (await this.request(`/users/me/calendarList${query}`)).json()) as {
-        items?: { id: string; summary?: string }[];
-        nextPageToken?: string;
-      };
-      const found = page.items?.find((c) => c.summary === name);
-      if (found) return found.id;
+      const query = new URLSearchParams(params);
+      if (pageToken) query.set('pageToken', pageToken);
+      const qs = query.toString();
+      const res = await this.request(qs ? `${path}?${qs}` : path);
+      const page = (await res.json()) as { items?: T[]; nextPageToken?: string };
+      items.push(...(page.items ?? []));
       pageToken = page.nextPageToken;
     } while (pageToken);
+    return items;
+  }
+
+  async ensureCalendar(name: string): Promise<string> {
+    const calendars = await this.listAll<{ id: string; summary?: string }>('/users/me/calendarList');
+    const found = calendars.find((c) => c.summary === name);
+    if (found) return found.id;
 
     const created = (await (
       await this.request('/calendars', { method: 'POST', body: JSON.stringify({ summary: name }) })
@@ -114,26 +124,18 @@ export class GoogleCalendarClient {
   }
 
   async listEvents(calendarId: string, timeMin: string, timeMax: string): Promise<GCalEvent[]> {
-    const events: GCalEvent[] = [];
-    let pageToken: string | undefined;
-    do {
-      const params = new URLSearchParams({ timeMin, timeMax, singleEvents: 'true', maxResults: '2500' });
-      if (pageToken) params.set('pageToken', pageToken);
-      const page = (await (
-        await this.request(`/calendars/${encodeURIComponent(calendarId)}/events?${params}`)
-      ).json()) as { items?: GoogleEventResource[]; nextPageToken?: string };
-      for (const item of page.items ?? []) {
-        const e = toEvent(item);
-        if (e) events.push(e);
-      }
-      pageToken = page.nextPageToken;
-    } while (pageToken);
-    return events;
+    const items = await this.listAll<GoogleEventResource>(`${calendarPath(calendarId)}/events`, {
+      timeMin,
+      timeMax,
+      singleEvents: 'true',
+      maxResults: '2500',
+    });
+    return items.flatMap((item) => toEvent(item) ?? []);
   }
 
   async insert(calendarId: string, e: GCalEvent): Promise<void> {
     const res = await this.write(
-      `/calendars/${encodeURIComponent(calendarId)}/events`,
+      `${calendarPath(calendarId)}/events`,
       { method: 'POST', body: JSON.stringify(e) },
       [409],
     );
@@ -141,7 +143,7 @@ export class GoogleCalendarClient {
   }
 
   async patch(calendarId: string, e: GCalEvent): Promise<void> {
-    await this.write(`/calendars/${encodeURIComponent(calendarId)}/events/${e.id}`, {
+    await this.write(`${calendarPath(calendarId)}/events/${e.id}`, {
       method: 'PATCH',
       // Google keeps deleted ids as 'cancelled'; confirming revives a restored lesson.
       body: JSON.stringify({ ...e, status: 'confirmed' }),
@@ -149,6 +151,6 @@ export class GoogleCalendarClient {
   }
 
   async remove(calendarId: string, eventId: string): Promise<void> {
-    await this.write(`/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`, { method: 'DELETE' }, [404, 410]);
+    await this.write(`${calendarPath(calendarId)}/events/${eventId}`, { method: 'DELETE' }, [404, 410]);
   }
 }

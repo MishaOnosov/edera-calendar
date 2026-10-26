@@ -1,3 +1,4 @@
+import { DAY_MS, inWindow, localMs, syncWindow } from '../time';
 import type { Lesson } from '../types';
 import { parseDetail, toLesson, type LessonDetail } from './parseDetail';
 import { ParseError, parseList, type RawLesson } from './parseList';
@@ -17,9 +18,6 @@ export interface CollectDeps {
 
 export type CollectResult = { status: 'ok'; lessons: Lesson[] } | { status: 'loggedOut' };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const PAST_DAYS = 7;
-const FUTURE_DAYS = 60;
 const CONCURRENCY = 4;
 /** The portal only shows the meeting link shortly before a lesson starts. */
 const LINK_APPEARS_WITHIN_DAYS = 7;
@@ -41,7 +39,7 @@ function pageIds(doc: Document): { teacher: string; students: string[] } {
 /** A cached detail without a meeting link goes stale once the lesson is close enough for the link to appear. */
 function linkMayBeMissing(cached: CachedDetail, now: Date): boolean {
   if (cached.detail.meetingUrl) return false;
-  return new Date(`${cached.start}Z`).getTime() <= now.getTime() + LINK_APPEARS_WITHIN_DAYS * DAY_MS;
+  return localMs(cached.start) <= now.getTime() + LINK_APPEARS_WITHIN_DAYS * DAY_MS;
 }
 
 async function fetchDetail(raw: RawLesson, deps: CollectDeps): Promise<LessonDetail | undefined> {
@@ -94,12 +92,9 @@ export async function collectLessons(deps: CollectDeps): Promise<CollectResult> 
   if (!res.ok) throw new Error(`Schedule request failed (${res.status})`);
   const raws = parseList(await res.text());
 
-  const min = deps.now.getTime() - PAST_DAYS * DAY_MS;
-  const max = deps.now.getTime() + FUTURE_DAYS * DAY_MS;
-  const lessons = await pool(raws, CONCURRENCY, async (raw) => {
-    const t = new Date(`${raw.start}Z`).getTime();
-    const inWindow = t >= min && t <= max;
-    return toLesson(raw, inWindow ? await fetchDetail(raw, deps) : undefined);
-  });
+  const window = syncWindow(deps.now);
+  const lessons = await pool(raws, CONCURRENCY, async (raw) =>
+    toLesson(raw, inWindow(raw.start, window) ? await fetchDetail(raw, deps) : undefined),
+  );
   return { status: 'ok', lessons };
 }
