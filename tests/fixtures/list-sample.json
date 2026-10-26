@@ -1,0 +1,5 @@
+[
+  {"start":"2026-11-07T12:00:00","end":"2026-11-07T13:30:00","id":"1001","barColor":"#a5de00","backColor":"#94608d","html":"Computer Science<br><div style=\"padding: 5px 0px;color:;\">[12:00 - 13:30]</div>\n  <!--<svg width=\"11\"><path d=\"M1\"/></svg>-->"},
+  {"start":"2026-11-14T12:00:00","end":"2026-11-14T13:30:00","id":"1002","barColor":"#a5de00","backColor":"#4b0082","html":"<b>Mathematics</b><br><div>[12:00 - 13:30]</div>"},
+  {"start":"2026-11-14T12:00:00","end":"2026-11-14T13:30:00","id":"1002","barColor":"#a5de00","backColor":"#4b0082","html":"Mathematics<br><div>[12:00 - 13:30]</div>"}
+]
