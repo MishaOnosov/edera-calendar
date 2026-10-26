@@ -1,6 +1,16 @@
 import type { GCalEvent } from '../types';
 
 const API = 'https://www.googleapis.com/calendar/v3';
+const MAX_ATTEMPTS = 5;
+const BACKOFF_BASE_MS = 1000;
+/** Pause before each write: bulk inserts otherwise trip Google's per-user rate limit. */
+const WRITE_GAP_MS = 150;
+const RATE_LIMIT_REASONS = new Set(['rateLimitExceeded', 'userRateLimitExceeded']);
+
+const isRetryable = (status: number, reason?: string) =>
+  status === 429 || status >= 500 || (status === 403 && reason !== undefined && RATE_LIMIT_REASONS.has(reason));
+
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export class GoogleApiError extends Error {
   constructor(
@@ -56,6 +66,7 @@ export class GoogleCalendarClient {
   constructor(
     private readonly getToken: TokenProvider,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly sleep: (ms: number) => Promise<void> = realSleep,
   ) {}
 
   private async request(path: string, init: RequestInit = {}, okStatuses: number[] = []): Promise<Response> {
@@ -65,12 +76,22 @@ export class GoogleCalendarClient {
         ...init,
         headers: { ...init.headers, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
-    let res = await send(await this.getToken());
-    if (res.status === 401) res = await send(await this.getToken(true));
-    if (!res.ok && !okStatuses.includes(res.status)) {
-      throw new GoogleApiError(res.status, `Google Calendar request failed (${res.status})`, await errorReason(res));
+    for (let attempt = 0; ; attempt++) {
+      let res = await send(await this.getToken());
+      if (res.status === 401) res = await send(await this.getToken(true));
+      if (res.ok || okStatuses.includes(res.status)) return res;
+      const reason = await errorReason(res);
+      if (attempt < MAX_ATTEMPTS - 1 && isRetryable(res.status, reason)) {
+        await this.sleep(BACKOFF_BASE_MS * 2 ** attempt); // Google's guidance: exponential backoff
+        continue;
+      }
+      throw new GoogleApiError(res.status, `Google Calendar request failed (${res.status})`, reason);
     }
-    return res;
+  }
+
+  private async write(path: string, init: RequestInit, okStatuses: number[] = []): Promise<Response> {
+    await this.sleep(WRITE_GAP_MS);
+    return this.request(path, init, okStatuses);
   }
 
   async ensureCalendar(name: string): Promise<string> {
@@ -111,7 +132,7 @@ export class GoogleCalendarClient {
   }
 
   async insert(calendarId: string, e: GCalEvent): Promise<void> {
-    const res = await this.request(
+    const res = await this.write(
       `/calendars/${encodeURIComponent(calendarId)}/events`,
       { method: 'POST', body: JSON.stringify(e) },
       [409],
@@ -120,7 +141,7 @@ export class GoogleCalendarClient {
   }
 
   async patch(calendarId: string, e: GCalEvent): Promise<void> {
-    await this.request(`/calendars/${encodeURIComponent(calendarId)}/events/${e.id}`, {
+    await this.write(`/calendars/${encodeURIComponent(calendarId)}/events/${e.id}`, {
       method: 'PATCH',
       // Google keeps deleted ids as 'cancelled'; confirming revives a restored lesson.
       body: JSON.stringify({ ...e, status: 'confirmed' }),
@@ -128,6 +149,6 @@ export class GoogleCalendarClient {
   }
 
   async remove(calendarId: string, eventId: string): Promise<void> {
-    await this.request(`/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`, { method: 'DELETE' }, [404, 410]);
+    await this.write(`/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`, { method: 'DELETE' }, [404, 410]);
   }
 }

@@ -80,4 +80,20 @@ describe('handleMessage', () => {
     await handleMessage({ type: 'schedule', lessons: [lesson] }, d);
     expect(states.at(-1)?.error).toContain('403: accessNotConfigured');
   });
+
+  it('ignores a schedule that arrives while a sync is already running', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const { d, states, client } = deps();
+    client.ensureCalendar.mockImplementation(async () => {
+      await gate;
+      return 'cal';
+    });
+    const first = handleMessage({ type: 'schedule', lessons: [lesson] }, d);
+    await handleMessage({ type: 'schedule', lessons: [lesson] }, d);
+    release();
+    await first;
+    expect(client.ensureCalendar).toHaveBeenCalledTimes(1);
+    expect(states.filter((s) => s.status === 'ok')).toHaveLength(1);
+  });
 });
