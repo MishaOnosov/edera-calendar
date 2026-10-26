@@ -14,7 +14,7 @@ export interface BackgroundDeps {
 function describeError(e: unknown): string {
   if (e instanceof ParseError) return 'The portal page looked different than expected; nothing was synced.';
   if (e instanceof AuthError) return 'Google sign-in failed or was cancelled; press Sync now to try again.';
-  if (e instanceof GoogleApiError) return `Google Calendar error (${e.status}); nothing was lost, try again.`;
+  if (e instanceof GoogleApiError) return `Google Calendar error (${e.reason ? `${e.status}: ${e.reason}` : e.status}); nothing was lost, try again.`;
   return 'Sync failed; try again.';
 }
 

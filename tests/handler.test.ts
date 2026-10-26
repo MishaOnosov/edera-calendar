@@ -74,4 +74,10 @@ describe('handleMessage', () => {
     await handleMessage({ type: 'schedule', lessons: [lesson] }, d);
     expect(states.at(-1)?.error).toContain('sign-in');
   });
+
+  it('shows the Google error reason code in the popup message', async () => {
+    const { d, states } = deps({ getClient: () => { throw new GoogleApiError(403, 'x', 'accessNotConfigured'); } });
+    await handleMessage({ type: 'schedule', lessons: [lesson] }, d);
+    expect(states.at(-1)?.error).toContain('403: accessNotConfigured');
+  });
 });

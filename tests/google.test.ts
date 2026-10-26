@@ -133,3 +133,23 @@ describe('fetch invocation', () => {
     expect(await new GoogleCalendarClient(getToken, strictFetch).ensureCalendar('Edera')).toBe('c');
   });
 });
+
+describe('error reason', () => {
+  it('exposes Google\'s machine-readable reason but not the message text', async () => {
+    const { impl } = fakeFetch(() => ({
+      status: 403,
+      json: { error: { message: 'Calendar API has not been used in project 1', errors: [{ reason: 'accessNotConfigured' }] } },
+    }));
+    const err = await new GoogleCalendarClient(getToken, impl).listEvents('cal', 'a', 'b').catch((e) => e);
+    expect(err).toBeInstanceOf(GoogleApiError);
+    expect(err.status).toBe(403);
+    expect(err.reason).toBe('accessNotConfigured');
+    expect(err.message).not.toContain('project 1');
+  });
+
+  it('has no reason when the body is not JSON', async () => {
+    const { impl } = fakeFetch(() => ({ status: 502 }));
+    const err = await new GoogleCalendarClient(getToken, impl).listEvents('cal', 'a', 'b').catch((e) => e);
+    expect(err.reason).toBeUndefined();
+  });
+});
