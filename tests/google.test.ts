@@ -123,3 +123,13 @@ describe('patch', () => {
     expect(calls[0]?.body).toMatchObject({ id: 'edera1', status: 'confirmed' });
   });
 });
+
+describe('fetch invocation', () => {
+  it('calls fetchImpl detached, as browsers throw "Illegal invocation" for fetch called as a method', async () => {
+    const strictFetch = function (this: unknown) {
+      if (this !== undefined) throw new TypeError('Illegal invocation');
+      return Promise.resolve(new Response(JSON.stringify({ items: [{ id: 'c', summary: 'Edera' }] })));
+    } as unknown as typeof fetch;
+    expect(await new GoogleCalendarClient(getToken, strictFetch).ensureCalendar('Edera')).toBe('c');
+  });
+});

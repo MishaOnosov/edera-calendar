@@ -44,8 +44,9 @@ export class GoogleCalendarClient {
   ) {}
 
   private async request(path: string, init: RequestInit = {}, okStatuses: number[] = []): Promise<Response> {
+    const fetchImpl = this.fetchImpl; // call detached: browsers throw "Illegal invocation" if fetch is a method of another object
     const send = async (token: string) =>
-      this.fetchImpl(`${API}${path}`, {
+      fetchImpl(`${API}${path}`, {
         ...init,
         headers: { ...init.headers, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
