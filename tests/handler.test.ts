@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleMessage, type BackgroundDeps } from '../src/background';
+import { handleMessage, type BackgroundDeps } from '../src/handler';
 import { ParseError } from '../src/reader/parseList';
 import { GoogleApiError } from '../src/sync/google';
 import type { SyncState } from '../src/messages';

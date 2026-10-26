@@ -22,6 +22,11 @@ const PAST_DAYS = 7;
 const FUTURE_DAYS = 60;
 const CONCURRENCY = 4;
 
+/** The content script matches every portal page; only the calendar and login pages are relevant. */
+export function shouldCollect(doc: Document): boolean {
+  return Boolean(doc.querySelector('#dp, form.login__form'));
+}
+
 function pageIds(doc: Document): { teacher: string; students: string[] } {
   const teacher = doc.querySelector<HTMLInputElement>('input[name="teacher"]')?.value ?? '';
   const students = Array.from(doc.querySelectorAll('.calendar__dropdown .dropdown__list')[0]?.children ?? [])

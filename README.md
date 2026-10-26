@@ -5,6 +5,7 @@ A Chrome extension that reads your schedule from the Edera School teacher portal
 - Uses your **already logged-in** portal session. Your portal password is never stored, sent anywhere or committed.
 - Writes only to the calendar named `Edera`; your other calendars are never touched.
 - Lesson times are read as Moscow time (what the portal uses) and created with an explicit time zone.
+- Don't add your own events to the `Edera` calendar: events there that are not in the portal are removed on sync.
 - Window synced: 7 days back to 60 days ahead. An empty portal response never deletes events.
 
 ## Install (development)
