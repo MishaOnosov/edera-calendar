@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleMessage, type BackgroundDeps } from '../src/handler';
 import { ParseError } from '../src/reader/parseList';
+import { AuthError } from '../src/auth';
 import { GoogleApiError } from '../src/sync/google';
 import type { SyncState } from '../src/messages';
 import type { Lesson } from '../src/types';
@@ -66,5 +67,11 @@ describe('handleMessage', () => {
     const { d } = deps();
     await handleMessage({ type: 'syncNow' }, d);
     expect(d.requestResync).toHaveBeenCalled();
+  });
+
+  it('explains a failed Google sign-in', async () => {
+    const { d, states } = deps({ getClient: () => { throw new AuthError(); } });
+    await handleMessage({ type: 'schedule', lessons: [lesson] }, d);
+    expect(states.at(-1)?.error).toContain('sign-in');
   });
 });

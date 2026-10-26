@@ -20,12 +20,15 @@ npm run build
 
 ## Google OAuth client (one-time)
 
+Works in any Chromium browser (Chrome, Arc, Brave, Edge). It uses a **Web application** client, not the "Chrome Extension" type.
+
 1. In [Google Cloud Console](https://console.cloud.google.com/) create a project and enable the **Google Calendar API**.
 2. Configure the OAuth consent screen (External, add yourself as a test user).
-3. Credentials → Create credentials → **OAuth client ID** → Application type **Chrome Extension**, Item ID = the extension ID from above.
-4. Put the client ID in `public/manifest.json` under `oauth2.client_id`, rebuild, and reload the extension.
+3. Credentials → Create credentials → **OAuth client ID** → Application type **Web application**.
+   Under **Authorized redirect URIs** add `https://<extension-id>.chromiumapp.org/` (the extension ID is on `chrome://extensions`; keep the trailing slash).
+4. Put the client ID in `src/config.ts` (`OAUTH_CLIENT_ID`), rebuild (`npm run build`) and reload the extension.
 
-> Loaded-unpacked extensions get a new ID if the folder path changes. To keep it stable, add a `key` to the manifest (Chrome docs: "Manifest key").
+> Loaded-unpacked extensions get a new ID if the folder path changes, which breaks the redirect URI. Keep the folder where it is, or add a `key` to the manifest (Chrome docs: "Manifest key") to pin the ID.
 
 ## Use
 
